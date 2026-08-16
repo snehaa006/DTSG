@@ -45,6 +45,15 @@ class Fact(BaseModel):
     confidence: float = 0.8
 
 
+class ExtractRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=8000)
+
+
+class ExtractResponse(BaseModel):
+    facts: list[Fact]
+    count: int
+
+
 class Memory(BaseModel):
     id: UUID
     user_id: UUID

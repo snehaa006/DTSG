@@ -4,9 +4,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import db
+from . import db, deps
 from .config import get_settings
-from .routers import chat, health
+from .routers import chat, extract, health
 
 logging.basicConfig(level=logging.INFO)
 
@@ -15,9 +15,11 @@ logging.basicConfig(level=logging.INFO)
 async def lifespan(app: FastAPI):
     settings = get_settings()
     await db.connect(settings)
+    deps.init(settings)
     try:
         yield
     finally:
+        await deps.shutdown()
         await db.disconnect()
 
 
@@ -41,6 +43,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(chat.router)
+app.include_router(extract.router)
 
 
 @app.get("/")

@@ -14,15 +14,15 @@ Two stores, with different mutability rules:
 
 ## Status
 
-**Phase 1 complete** — schema, FastAPI skeleton, and a React chat client that
-POSTs messages end to end. `POST /api/chat` is transport only: it validates and
-acknowledges, and does not yet write an event or extract a fact.
+**Phase 2 complete** — `POST /api/extract` turns a message into normalized
+subject–predicate–object facts. Still no writes: extraction is stateless and
+returns what *would* be persisted.
 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Supabase schema + FastAPI skeleton + Vercel chat UI | ✅ done |
-| 2 | Fact extraction endpoint (LLM → subject/predicate/object) | next |
-| 3 | Event log write path (immutable insert) | |
+| 2 | Fact extraction endpoint (LLM → subject/predicate/object) | ✅ done |
+| 3 | Event log write path (immutable insert) | next |
 | 4 | Conflict classifier (REINFORCE / ADDITIVE / SUPERSEDE) + write pipeline | |
 | 5 | Temporal retrieval with re-ranking | |
 | 6 | Frontend memory timeline showing supersede chains | |
@@ -58,6 +58,43 @@ Both model calls go through `app/llm/base.py`, which names jobs by tier
 Together.ai or Groq without touching call sites. The embedding client speaks the
 OpenAI wire format, which most hosted providers implement.
 
+## Extraction (Phase 2)
+
+`POST /api/extract` takes `{"text": "..."}` and returns normalized facts:
+
+```json
+{ "facts": [
+    { "subject": "user", "predicate": "lives_in", "object": "Berlin", "confidence": 0.95 },
+    { "subject": "user", "predicate": "works_at", "object": "Acme",   "confidence": 0.9  }
+  ],
+  "count": 2 }
+```
+
+Extraction runs in two stages, and the second one is load-bearing:
+
+1. **Propose** — Haiku returns triples under a schema Claude enforces
+   server-side, so the payload cannot come back malformed.
+2. **Normalize** — subject and predicate are folded into canonical form.
+
+Stage 2 exists because Phase 4 detects supersession by matching a new fact
+against existing memories with the same `(subject, predicate)`. If the model
+says `lives_in` on Monday and `resides_in` on Tuesday, nothing matches, nothing
+supersedes, and the graph quietly accumulates contradictory ACTIVE facts. So
+every first-person subject collapses to `user`, and predicates are snake-cased
+and mapped through a synonym table (`resides_in`, `based_in`, `moved_to` →
+`lives_in`). Extend `_PREDICATE_SYNONYMS` in `app/extraction.py` as you see new
+drift on your own test set.
+
+An empty `facts` list is a correct answer, not an error — questions and
+greetings contain no durable facts.
+
+To check the live model path (the test suite stubs it):
+
+```bash
+cd backend
+ANTHROPIC_API_KEY=sk-ant-... .venv/bin/python scripts/check_extraction.py
+```
+
 ## Local development
 
 **Backend**
@@ -71,6 +108,13 @@ cp .env.example .env      # fill in DATABASE_URL at minimum
 
 `http://localhost:8000/docs` for the OpenAPI UI; `/health` reports database
 reachability.
+
+Tests (no API key or database needed — the provider is stubbed):
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt
+DATABASE_URL=unused:// .venv/bin/python -m pytest
+```
 
 **Frontend**
 
