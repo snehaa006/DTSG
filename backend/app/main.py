@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import db, deps
 from .config import get_settings
-from .routers import chat, extract, health
+from .routers import chat, events, extract, health
 
 logging.basicConfig(level=logging.INFO)
 
@@ -44,8 +44,9 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(extract.router)
+app.include_router(events.router)
 
 
 @app.get("/")
 async def root():
-    return {"service": "dtsg", "phase": 1, "docs": "/docs"}
+    return {"service": "dtsg", "phase": 3, "docs": "/docs"}
