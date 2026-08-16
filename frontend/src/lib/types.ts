@@ -43,6 +43,35 @@ export interface MemoryListResponse {
   memories: Memory[];
 }
 
+export type RetrieveMode = "now" | "as_of" | "changes";
+
+/** A memory with the scoring terms kept separate, so a ranking can be explained. */
+export interface ScoredMemory extends Memory {
+  similarity: number;
+  status_weight: number;
+  recency: number;
+  score: number;
+}
+
+export interface RetrieveRequest {
+  user_id: string;
+  query: string;
+  limit?: number;
+  mode?: RetrieveMode;
+  as_of?: string;
+  lambda_per_day?: number;
+  expired_weight?: number;
+}
+
+export interface RetrieveResponse {
+  results: ScoredMemory[];
+  mode: RetrieveMode;
+  evaluated_at: string;
+  candidates_considered: number;
+  lambda_per_day: number;
+  expired_weight: number;
+}
+
 export interface EventListResponse {
   events: Event[];
   next_before_timestamp: string | null;
@@ -68,4 +97,5 @@ export interface Memory {
   superseded_by: string | null;
   valid_from: string | null;
   valid_until: string | null;
+  last_reinforced_at: string | null;
 }

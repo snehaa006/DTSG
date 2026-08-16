@@ -79,6 +79,7 @@ class Memory(BaseModel):
     superseded_by: UUID | None = None
     valid_from: datetime | None = None
     valid_until: datetime | None = None
+    last_reinforced_at: datetime | None = None
 
 
 class MemoryCandidate(Memory):
@@ -108,6 +109,44 @@ class IngestResult(BaseModel):
 
 class MemoryListResponse(BaseModel):
     memories: list[Memory]
+
+
+class ScoredMemory(Memory):
+    """A memory with the three scoring terms kept separate.
+
+    The components are returned, not just the product, because a ranking you
+    cannot decompose is one you cannot debug: when a stale fact outranks a
+    current one, the only useful question is which term caused it.
+    """
+
+    similarity: float
+    status_weight: float
+    recency: float
+    score: float
+
+
+class RetrieveRequest(BaseModel):
+    user_id: UUID
+    query: str = Field(min_length=1, max_length=4000)
+    limit: int = Field(default=10, ge=1, le=100)
+    mode: Literal["now", "as_of", "changes"] = "now"
+    # Required for mode="as_of": the moment to evaluate the graph at.
+    as_of: datetime | None = None
+    # Scoring knobs, exposed so a test set can be swept without a redeploy.
+    lambda_per_day: float | None = Field(default=None, ge=0.0)
+    expired_weight: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class RetrieveResponse(BaseModel):
+    results: list[ScoredMemory]
+    mode: str
+    # The instant scoring was evaluated at: `as_of` when given, else now.
+    evaluated_at: datetime
+    # How many rows re-ranking chose from. If this equals the pool size, the
+    # pool was saturated and a higher over-fetch might surface something better.
+    candidates_considered: int
+    lambda_per_day: float
+    expired_weight: float
 
 
 class HealthResponse(BaseModel):

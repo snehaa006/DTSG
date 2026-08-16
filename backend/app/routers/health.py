@@ -5,7 +5,7 @@ from ..schemas import HealthResponse
 
 router = APIRouter(tags=["health"])
 
-PHASE = 4
+PHASE = 5
 
 
 @router.get("/health", response_model=HealthResponse)
