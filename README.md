@@ -14,16 +14,15 @@ Two stores, with different mutability rules:
 
 ## Status
 
-**Phase 2 complete** — `POST /api/extract` turns a message into normalized
-subject–predicate–object facts. Still no writes: extraction is stateless and
-returns what *would* be persisted.
+**Phase 3 complete** — `POST /api/chat` now appends every message to the event
+log, and immutability is enforced by the database rather than by convention.
 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Supabase schema + FastAPI skeleton + Vercel chat UI | ✅ done |
 | 2 | Fact extraction endpoint (LLM → subject/predicate/object) | ✅ done |
-| 3 | Event log write path (immutable insert) | next |
-| 4 | Conflict classifier (REINFORCE / ADDITIVE / SUPERSEDE) + write pipeline | |
+| 3 | Event log write path (immutable insert) | ✅ done |
+| 4 | Conflict classifier (REINFORCE / ADDITIVE / SUPERSEDE) + write pipeline | next |
 | 5 | Temporal retrieval with re-ranking | |
 | 6 | Frontend memory timeline showing supersede chains | |
 | 7 | Baseline naive-RAG endpoint for comparison | |
@@ -57,6 +56,39 @@ Both model calls go through `app/llm/base.py`, which names jobs by tier
 (`FAST` / `SMART`) rather than by model, so the mapping can be repointed at
 Together.ai or Groq without touching call sites. The embedding client speaks the
 OpenAI wire format, which most hosted providers implement.
+
+## The event log (Phase 3)
+
+`POST /api/chat` appends the raw message to `events` before anything else
+happens, and returns the `event_id`. Reads are available at
+`GET /api/events?user_id=…` (newest first) and `GET /api/events/{id}`.
+
+**Immutability is enforced in the database, not just intended.** Migration 0002
+puts `BEFORE UPDATE` and `BEFORE DELETE` triggers on `events` that reject the
+operation for every role, service role included. Before this, "append-only" was
+a convention one careless query away from being false — and the temporal model
+depends on it completely: if an event's text can be rewritten, every memory
+derived from it becomes unverifiable and "what did I say before X" stops meaning
+anything.
+
+Real deletions do eventually become necessary (a GDPR erasure request, a test
+teardown), so there is a deliberate escape hatch:
+
+```sql
+begin;
+set local dtsg.allow_event_mutation = 'on';
+delete from events where user_id = '...';
+commit;
+```
+
+`set local` scopes the exemption to the transaction, so it cannot leak into the
+pooled connection's next user. Application code never sets it. That is the
+point: erasing history stays possible, but never accidental.
+
+Listing uses keyset pagination on `(timestamp, id)` rather than `OFFSET`. The
+log only grows at the head, so `OFFSET` would shift rows under a paging client;
+and the id is in the key because two messages sent in the same millisecond share
+a timestamp, which ordering by timestamp alone would drop or duplicate.
 
 ## Extraction (Phase 2)
 

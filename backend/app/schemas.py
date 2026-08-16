@@ -25,8 +25,8 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
-    # Populated from Phase 3 onward, once the event log write path exists.
-    event_id: UUID | None = None
+    # The append-only event this message was recorded as.
+    event_id: UUID
 
 
 class Event(BaseModel):
@@ -43,6 +43,14 @@ class Fact(BaseModel):
     predicate: str
     object: str
     confidence: float = 0.8
+
+
+class EventListResponse(BaseModel):
+    events: list[Event]
+    # Cursor for the next page: pass these back as before_timestamp/before_id.
+    # Null when this is the last page.
+    next_before_timestamp: datetime | None = None
+    next_before_id: UUID | None = None
 
 
 class ExtractRequest(BaseModel):

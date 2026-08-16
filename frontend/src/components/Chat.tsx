@@ -4,6 +4,9 @@ import { sendMessage } from "../lib/api";
 interface Turn {
   role: "user" | "assistant";
   text: string;
+  // Set on user turns once the message has been appended to the event log.
+  // Showing it is how you confirm the write path is live without opening psql.
+  eventId?: string;
 }
 
 export function Chat() {
@@ -24,7 +27,17 @@ export function Chat() {
 
     try {
       const response = await sendMessage(message);
-      setTurns((prev) => [...prev, { role: "assistant", text: response.reply }]);
+      setTurns((prev) => {
+        const next = [...prev];
+        // Stamp the event id onto the user turn it belongs to.
+        for (let i = next.length - 1; i >= 0; i--) {
+          if (next[i].role === "user" && next[i].eventId === undefined) {
+            next[i] = { ...next[i], eventId: response.event_id };
+            break;
+          }
+        }
+        return [...next, { role: "assistant", text: response.reply }];
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -42,7 +55,14 @@ export function Chat() {
         )}
         {turns.map((turn, i) => (
           <div key={i} className={`turn turn-${turn.role}`}>
-            <span className="role">{turn.role}</span>
+            <span className="role">
+              {turn.role}
+              {turn.eventId && (
+                <span className="event-id" title={`event ${turn.eventId}`}>
+                  logged {turn.eventId.slice(0, 8)}
+                </span>
+              )}
+            </span>
             <p>{turn.text}</p>
           </div>
         ))}

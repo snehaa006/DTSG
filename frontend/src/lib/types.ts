@@ -11,7 +11,20 @@ export interface ChatRequest {
 
 export interface ChatResponse {
   reply: string;
-  event_id: string | null;
+  event_id: string;
+}
+
+export interface Event {
+  id: string;
+  user_id: string;
+  raw_text: string;
+  timestamp: string;
+}
+
+export interface EventListResponse {
+  events: Event[];
+  next_before_timestamp: string | null;
+  next_before_id: string | null;
 }
 
 export interface HealthResponse {

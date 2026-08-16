@@ -8,6 +8,11 @@ call or an API key.
 
 from __future__ import annotations
 
+from typing import AsyncIterator
+
+import asyncpg
+
+from . import db
 from .config import Settings, get_settings
 from .llm.anthropic_provider import AnthropicProvider
 from .llm.base import LLMProvider
@@ -36,6 +41,12 @@ def get_llm() -> LLMProvider:
         init(get_settings())
     assert _llm is not None
     return _llm
+
+
+async def get_conn() -> AsyncIterator[asyncpg.Connection]:
+    """Yield a pooled connection for the lifetime of one request."""
+    async with db.acquire() as conn:
+        yield conn
 
 
 def get_embeddings() -> EmbeddingClient:
