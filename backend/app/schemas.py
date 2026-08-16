@@ -27,6 +27,10 @@ class ChatResponse(BaseModel):
     reply: str
     # The append-only event this message was recorded as.
     event_id: UUID
+    # What the write pipeline did with each extracted fact. Declared after
+    # FactOutcome via the forward reference resolved at the end of this module.
+    outcomes: list["FactOutcome"] = Field(default_factory=list)
+    error: str | None = None
 
 
 class Event(BaseModel):
@@ -77,7 +81,40 @@ class Memory(BaseModel):
     valid_until: datetime | None = None
 
 
+class MemoryCandidate(Memory):
+    """A memory offered to the classifier, with how close it was judged to be."""
+
+    similarity: float
+
+
+class FactOutcome(BaseModel):
+    """What the write pipeline did with one extracted fact."""
+
+    fact: Fact
+    resolution: Resolution
+    reasoning: str
+    memory_id: UUID | None = None
+    expired_memory_ids: list[UUID] = Field(default_factory=list)
+    reinforced_memory_id: UUID | None = None
+
+
+class IngestResult(BaseModel):
+    event_id: UUID
+    outcomes: list[FactOutcome] = Field(default_factory=list)
+    # Set when the event was logged but fact processing failed. The event still
+    # persists; the derived state can be rebuilt from it later.
+    error: str | None = None
+
+
+class MemoryListResponse(BaseModel):
+    memories: list[Memory]
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     database: bool
     phase: int
+
+
+# ChatResponse references FactOutcome, which is defined further down the module.
+ChatResponse.model_rebuild()

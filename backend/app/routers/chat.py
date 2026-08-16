@@ -1,10 +1,7 @@
-"""Chat entry point.
+"""Chat entry point — now the full ingest pipeline.
 
-Phase 3 makes this write: every incoming message is appended to the event log
-before anything else happens. That ordering is deliberate — the raw message is
-the ground truth the rest of the system derives from, so it is recorded first
-and unconditionally, even if later stages (extraction in Phase 4, retrieval in
-Phase 5) fail or are not built yet.
+The response reports what happened to each extracted fact, which is the only way
+to see a SUPERSEDE without querying the database directly.
 """
 
 from __future__ import annotations
@@ -12,25 +9,45 @@ from __future__ import annotations
 import asyncpg
 from fastapi import APIRouter, Depends
 
-from ..deps import get_conn
+from ..deps import get_conn, get_embeddings, get_llm
+from ..llm.base import LLMProvider
+from ..llm.embeddings import EmbeddingClient
+from ..pipeline import ingest_message
 from ..schemas import ChatRequest, ChatResponse
-from ..store import events as events_store
 
 router = APIRouter(prefix="/api", tags=["chat"])
+
+
+def _summarize(result) -> str:
+    if result.error and not result.outcomes:
+        return "Recorded to the event log, but fact processing failed."
+    if not result.outcomes:
+        return "Recorded. No durable facts in that message."
+
+    counts: dict[str, int] = {}
+    for outcome in result.outcomes:
+        counts[outcome.resolution] = counts.get(outcome.resolution, 0) + 1
+    parts = [f"{n} {label.lower()}" for label, n in sorted(counts.items())]
+    return "Recorded. " + ", ".join(parts) + "."
 
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     payload: ChatRequest,
     conn: asyncpg.Connection = Depends(get_conn),
+    llm: LLMProvider = Depends(get_llm),
+    embeddings: EmbeddingClient = Depends(get_embeddings),
 ) -> ChatResponse:
-    event = await events_store.insert_event(
-        conn, user_id=payload.user_id, raw_text=payload.message
+    result = await ingest_message(
+        conn,
+        llm=llm,
+        embeddings=embeddings,
+        user_id=payload.user_id,
+        message=payload.message,
     )
     return ChatResponse(
-        reply=(
-            "Recorded to the event log. Fact extraction and the memory write "
-            "pipeline land in Phase 4."
-        ),
-        event_id=event.id,
+        reply=_summarize(result),
+        event_id=result.event_id,
+        outcomes=result.outcomes,
+        error=result.error,
     )

@@ -14,16 +14,17 @@ Two stores, with different mutability rules:
 
 ## Status
 
-**Phase 3 complete** — `POST /api/chat` now appends every message to the event
-log, and immutability is enforced by the database rather than by convention.
+**Phase 4 complete** — `POST /api/chat` runs the full ingest pipeline: message →
+event → facts → candidates → classification → writes. Superseded facts are
+expired and linked, never deleted.
 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Supabase schema + FastAPI skeleton + Vercel chat UI | ✅ done |
 | 2 | Fact extraction endpoint (LLM → subject/predicate/object) | ✅ done |
 | 3 | Event log write path (immutable insert) | ✅ done |
-| 4 | Conflict classifier (REINFORCE / ADDITIVE / SUPERSEDE) + write pipeline | next |
-| 5 | Temporal retrieval with re-ranking | |
+| 4 | Conflict classifier (REINFORCE / ADDITIVE / SUPERSEDE) + write pipeline | ✅ done |
+| 5 | Temporal retrieval with re-ranking | next |
 | 6 | Frontend memory timeline showing supersede chains | |
 | 7 | Baseline naive-RAG endpoint for comparison | |
 
@@ -56,6 +57,73 @@ Both model calls go through `app/llm/base.py`, which names jobs by tier
 (`FAST` / `SMART`) rather than by model, so the mapping can be repointed at
 Together.ai or Groq without touching call sites. The embedding client speaks the
 OpenAI wire format, which most hosted providers implement.
+
+## Conflict resolution and the write pipeline (Phase 4)
+
+`POST /api/chat` now runs the whole thing and reports what happened to each
+fact:
+
+```
+message → event (committed) → facts → candidates → classification → writes
+```
+
+**The event commits in its own transaction, before anything derived runs.**
+Extraction and classification both call an LLM, so both can fail on a rate limit
+or a timeout. Sharing one transaction would roll back the raw message too — and
+the raw message is the only thing that cannot be reconstructed. Memories can
+always be rebuilt by replaying events; events cannot be rebuilt from anything.
+So a downstream failure costs derived state, never history.
+
+### The decision that matters
+
+ADDITIVE vs SUPERSEDE is *not* "same subject and predicate":
+
+```
+user speaks English   + user speaks Hindi     → ADDITIVE   (multi-valued)
+user lives_in Delhi   + user lives_in Berlin  → SUPERSEDE  (single-valued)
+```
+
+Both pairs share a subject and predicate. Treating that as contradiction would
+silently delete the user's second language; treating it as coexistence would
+leave them living in two cities. Nothing in the schema decides this — it is a
+judgement about whether the predicate can hold several values at once, which is
+why an LLM makes the call.
+
+The bias is deliberately toward ADDITIVE. A wrong ADDITIVE leaves a stale fact
+ACTIVE, which retrieval ranking moderates and a later correction fixes. A wrong
+SUPERSEDE expires something true; the row survives, but it drops out of "what's
+true now" until someone notices.
+
+### Candidate search
+
+Two arms, because they fail in opposite directions. **Exact `(subject,
+predicate)`** is high-precision and always included regardless of vector
+distance — if the user already has a `lives_in` fact, a new one must be
+considered even when the two cities embed far apart. **Vector similarity**
+(floored at 0.55) catches overlap the exact arm misses, such as an older
+`works_at` against a new `works_as`.
+
+### On SUPERSEDE
+
+The new memory is inserted, then the targets are expired in the same
+transaction: `status = 'EXPIRED'`, `valid_until = now()`, `superseded_by` → the
+new row. The expiry is guarded on `status = 'ACTIVE'` so a retry cannot
+overwrite a chain link written by the first attempt.
+
+> `memories.supersedes` holds a single uuid, so when one fact invalidates
+> several it records the closest one. The complete edge set lives on the other
+> side — every expired row's `superseded_by` points at the replacement — so
+> **`superseded_by` is the authoritative link**, and the one Phase 6 should walk.
+
+Verify the model's judgement against your own cases:
+
+```bash
+cd backend
+ANTHROPIC_API_KEY=sk-ant-... .venv/bin/python scripts/check_classifier.py
+```
+
+Inspect the graph with `GET /api/memories?user_id=…` (add `status=EXPIRED` to
+see what has been superseded).
 
 ## The event log (Phase 3)
 

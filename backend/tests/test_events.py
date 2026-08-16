@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
-from app.deps import get_conn
+from app.deps import get_conn, get_embeddings, get_llm
 from app.main import app
 from app.schemas import Event
 from app.store import events as events_store
@@ -33,8 +33,19 @@ def _row(raw_text: str = "hello", ts: datetime | None = None) -> dict:
     }
 
 
+class FakeTx:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
 class FakeConn:
     """Records SQL and args; replays queued results."""
+
+    def transaction(self):
+        return FakeTx()
 
     def __init__(self, fetchrow=None, fetch=None, fetchval=None) -> None:
         self._fetchrow = fetchrow
@@ -129,12 +140,38 @@ def test_store_exposes_no_mutation_helpers() -> None:
 # --- routes ----------------------------------------------------------------
 
 
+class NoFactsLLM:
+    """Extracts nothing, so chat exercises the event write and stops there."""
+
+    async def complete(self, **kwargs):  # pragma: no cover
+        raise NotImplementedError
+
+    async def complete_structured(self, *, schema, **kwargs):
+        return schema(facts=[])
+
+
+class NoopEmbeddings:
+    async def embed(self, texts):  # pragma: no cover - unreached with no facts
+        return [[0.0]]
+
+
+def _chat_client(conn: FakeConn) -> httpx.AsyncClient:
+    async def conn_override():
+        yield conn
+
+    app.dependency_overrides[get_conn] = conn_override
+    app.dependency_overrides[get_llm] = lambda: NoFactsLLM()
+    app.dependency_overrides[get_embeddings] = lambda: NoopEmbeddings()
+    transport = httpx.ASGITransport(app=app)
+    return httpx.AsyncClient(transport=transport, base_url="http://t")
+
+
 @pytest.mark.asyncio
 async def test_chat_appends_an_event_and_returns_its_id() -> None:
     row = _row("I moved to Berlin")
     conn = FakeConn(fetchrow=row)
     try:
-        async with _client(conn) as client:
+        async with _chat_client(conn) as client:
             response = await client.post(
                 "/api/chat", json={"user_id": str(USER), "message": "I moved to Berlin"}
             )
@@ -143,14 +180,14 @@ async def test_chat_appends_an_event_and_returns_its_id() -> None:
 
     assert response.status_code == 200
     assert response.json()["event_id"] == str(row["id"])
-    assert conn.last_args == (USER, "I moved to Berlin")
+    assert conn.calls[0][1] == (USER, "I moved to Berlin")
 
 
 @pytest.mark.asyncio
 async def test_invalid_chat_payload_never_reaches_the_database() -> None:
     conn = FakeConn(fetchrow=_row())
     try:
-        async with _client(conn) as client:
+        async with _chat_client(conn) as client:
             response = await client.post(
                 "/api/chat", json={"user_id": "not-a-uuid", "message": "x"}
             )
