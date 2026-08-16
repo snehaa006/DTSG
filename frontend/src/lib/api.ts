@@ -1,4 +1,11 @@
-import type { ChatRequest, ChatResponse, HealthResponse } from "./types";
+import type {
+  ChatRequest,
+  ChatResponse,
+  HealthResponse,
+  MemoryListResponse,
+  RetrieveRequest,
+  RetrieveResponse,
+} from "./types";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -28,4 +35,22 @@ export function sendMessage(message: string): Promise<ChatResponse> {
 
 export function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>("/health");
+}
+
+export function retrieve(
+  options: Omit<RetrieveRequest, "user_id">,
+): Promise<RetrieveResponse> {
+  const payload: RetrieveRequest = { user_id: DEV_USER_ID, ...options };
+  return request<RetrieveResponse>("/api/retrieve", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listMemories(
+  status?: "ACTIVE" | "EXPIRED",
+): Promise<MemoryListResponse> {
+  const params = new URLSearchParams({ user_id: DEV_USER_ID });
+  if (status) params.set("status", status);
+  return request<MemoryListResponse>(`/api/memories?${params}`);
 }

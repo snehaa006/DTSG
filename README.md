@@ -14,9 +14,9 @@ Two stores, with different mutability rules:
 
 ## Status
 
-**Phase 4 complete** — `POST /api/chat` runs the full ingest pipeline: message →
-event → facts → candidates → classification → writes. Superseded facts are
-expired and linked, never deleted.
+**Phase 5 complete** — `POST /api/retrieve` ranks memories by
+`similarity × status_weight × exp(-λ·Δt)`, with modes for "what's true now",
+point-in-time queries, and "what changed".
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -24,8 +24,8 @@ expired and linked, never deleted.
 | 2 | Fact extraction endpoint (LLM → subject/predicate/object) | ✅ done |
 | 3 | Event log write path (immutable insert) | ✅ done |
 | 4 | Conflict classifier (REINFORCE / ADDITIVE / SUPERSEDE) + write pipeline | ✅ done |
-| 5 | Temporal retrieval with re-ranking | next |
-| 6 | Frontend memory timeline showing supersede chains | |
+| 5 | Temporal retrieval with re-ranking | ✅ done |
+| 6 | Frontend memory timeline showing supersede chains | next |
 | 7 | Baseline naive-RAG endpoint for comparison | |
 
 ## Layout
@@ -57,6 +57,71 @@ Both model calls go through `app/llm/base.py`, which names jobs by tier
 (`FAST` / `SMART`) rather than by model, so the mapping can be repointed at
 Together.ai or Groq without touching call sites. The embedding client speaks the
 OpenAI wire format, which most hosted providers implement.
+
+## Temporal retrieval (Phase 5)
+
+`POST /api/retrieve` scores every candidate as:
+
+```
+score = cosine_similarity × status_weight × exp(-λ · time_delta)
+```
+
+Three questions, one multiplication: *is this relevant*, *is it still true*,
+*how stale is it*. The status term is what separates DTSG from ordinary RAG — a
+superseded fact is not deleted and not filtered out, it is **discounted**
+(default 0.15). So it never outranks its replacement, and never becomes
+unreachable either.
+
+Run the demo — no database or API key needed:
+
+```bash
+cd backend && .venv/bin/python scripts/check_retrieval.py
+```
+
+It scores a Delhi → Berlin move where **both facts have identical cosine
+similarity (1.000)**, so plain vector search cannot tell them apart:
+
+| Query | Berlin | Delhi |
+| --- | --- | --- |
+| "Where do I live?" (`mode=now`) | **0.9622** | 0.1443 |
+| "Where have I lived?" (`expired_weight=1.0`) | 0.9622 | 0.9622 |
+| "Where did I live in spring?" (`mode=as_of`, −60d) | 0.1500 | **1.0000** |
+
+The last row is the one to notice: the order **inverts**, because at that
+instant Berlin had not happened yet.
+
+### Modes
+
+| Mode | Eligible rows | Scored at |
+| --- | --- | --- |
+| `now` (default) | everything; superseded rows discounted | now |
+| `as_of` | only facts that held at that instant | the given `as_of` |
+| `changes` | only rows in a supersede chain, newest transition first | now |
+
+`as_of` evaluates the status term **against that moment**, so a fact superseded
+last week counts as fully current for a query about last month. That is what
+makes "what did I say before X" a ranking question rather than a separate store.
+
+### Re-ranking
+
+Two stages, because no index can be built over a formula whose terms depend on
+query time and caller-supplied constants. Postgres does approximate-nearest-
+neighbour over the HNSW index; Python applies the full score to that pool.
+
+The pool is deliberately over-fetched (6× the limit, minimum 40): top-K by
+cosine is *not* top-K by score, and too small a pool silently drops rows that
+would have won. `candidates_considered` in the response tells you whether the
+pool was saturated.
+
+### Knobs
+
+`lambda_per_day` defaults to `ln(2)/180` — a 180-day half-life. Facts people
+state about themselves age slowly, so aggressive decay buries correct answers
+faster than they actually go stale. Both `lambda_per_day` and `expired_weight`
+are per-request, so a test set can be swept without a redeploy.
+
+Every response returns the three terms separately, not just the product: a
+ranking you cannot decompose is one you cannot debug.
 
 ## Conflict resolution and the write pipeline (Phase 4)
 

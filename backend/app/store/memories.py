@@ -8,6 +8,7 @@ stays walkable.
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 import asyncpg
@@ -16,7 +17,8 @@ from ..schemas import Fact, Memory, MemoryCandidate
 
 _COLUMNS = (
     "id, user_id, subject, predicate, object, status, confidence, "
-    "source_event, supersedes, superseded_by, valid_from, valid_until"
+    "source_event, supersedes, superseded_by, valid_from, valid_until, "
+    "last_reinforced_at"
 )
 
 
@@ -182,15 +184,16 @@ async def reinforce_memory(
     step, so repeated confirmations approach certainty without ever claiming it,
     and a fact asserted ten times does not overflow the scale.
 
-    Deliberately does not touch `valid_from`: that records when the fact became
-    true, not when it was last mentioned. Phase 5's recency decay will need a
-    separate `last_reinforced_at` column if reinforcement should count as
-    freshness.
+    Stamps `last_reinforced_at` (migration 0004) but deliberately leaves
+    `valid_from` alone: that records when the fact became true, not when it was
+    last mentioned. Retrieval decays from the former, so restating a fact makes
+    it rank as fresh without rewriting when it started.
     """
     row = await conn.fetchrow(
         f"""
         update memories
-        set confidence = least(1.0, confidence + (1.0 - confidence) * $2)
+        set confidence = least(1.0, confidence + (1.0 - confidence) * $2),
+            last_reinforced_at = now()
         where id = $1 and status = 'ACTIVE'
         returning {_COLUMNS}
         """,
@@ -231,6 +234,102 @@ async def list_memories(
             limit,
         )
     return [_to_memory(row) for row in rows]
+
+
+async def search_candidates(
+    conn: asyncpg.Connection,
+    *,
+    user_id: UUID,
+    embedding: list[float],
+    pool_size: int,
+    mode: str = "now",
+    as_of: datetime | None = None,
+) -> list[tuple[Memory, float]]:
+    """Fetch the ANN candidate pool that re-ranking will score.
+
+    Returns `(memory, cosine_similarity)` pairs ordered by vector distance. This
+    is only the *first* stage: the final ordering comes from the temporal score
+    in `app.retrieval`, which the database cannot index over.
+
+    Modes differ in what is eligible, not in how it is scored:
+
+    * ``now``     — everything, including superseded facts. They are discounted
+                    by `status_weight`, not filtered out, which is what keeps a
+                    stale answer reachable when nothing current fits.
+    * ``as_of``   — only facts that held at that instant: recorded by then and
+                    not yet expired. A fact superseded last week is eligible for
+                    a query about last month.
+    * ``changes`` — only rows in a supersede chain, i.e. the graph's diffs.
+
+    Rows with a null embedding are unreachable in the similarity modes; that is
+    the cost of the Phase 4 decision to store a fact rather than drop it when
+    the embedding service is down, and a backfill fixes it. ``changes`` does not
+    rank by similarity, so it includes them.
+    """
+    vector = to_pgvector(embedding)
+
+    if mode == "as_of":
+        if as_of is None:
+            raise ValueError("as_of mode requires an as_of timestamp")
+        return _pairs(
+            await conn.fetch(
+                f"""
+                select {_COLUMNS}, 1 - (embedding <=> $2::vector) as similarity
+                from memories
+                where user_id = $1
+                  and embedding is not null
+                  and valid_from <= $3
+                  and (valid_until is null or valid_until > $3)
+                order by embedding <=> $2::vector
+                limit $4
+                """,
+                user_id,
+                vector,
+                as_of,
+                pool_size,
+            )
+        )
+
+    if mode == "changes":
+        # Ordered by when the change happened, not by similarity: "what changed"
+        # is a question about the timeline, and an empty-ish query should still
+        # return the most recent transitions rather than arbitrary near matches.
+        return _pairs(
+            await conn.fetch(
+                f"""
+                select {_COLUMNS},
+                       case when embedding is null then 0.0::float8
+                            else 1 - (embedding <=> $2::vector) end as similarity
+                from memories
+                where user_id = $1
+                  and (superseded_by is not null or supersedes is not null)
+                order by coalesce(valid_until, valid_from) desc
+                limit $3
+                """,
+                user_id,
+                vector,
+                pool_size,
+            )
+        )
+
+    return _pairs(
+        await conn.fetch(
+            f"""
+            select {_COLUMNS}, 1 - (embedding <=> $2::vector) as similarity
+            from memories
+            where user_id = $1 and embedding is not null
+            order by embedding <=> $2::vector
+            limit $3
+            """,
+            user_id,
+            vector,
+            pool_size,
+        )
+    )
+
+
+def _pairs(rows: list[asyncpg.Record]) -> list[tuple[Memory, float]]:
+    return [(_to_memory(row), float(row["similarity"])) for row in rows]
 
 
 async def get_memory(conn: asyncpg.Connection, memory_id: UUID) -> Memory | None:
