@@ -12,7 +12,11 @@ Together.ai or Groq for open-weight models) without touching call sites.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Protocol
+from typing import Protocol, TypeVar
+
+from pydantic import BaseModel
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class Tier(str, Enum):
@@ -30,6 +34,24 @@ class LLMProvider(Protocol):
         max_tokens: int = 1024,
     ) -> str:
         """Return the model's text response for a single-turn prompt."""
+        ...
+
+    async def complete_structured(
+        self,
+        *,
+        tier: Tier,
+        system: str,
+        prompt: str,
+        schema: type[T],
+        max_tokens: int = 2048,
+    ) -> T:
+        """Return a response validated against `schema`.
+
+        Claude enforces the schema server-side, so this cannot come back
+        malformed. A provider without native structured outputs can implement
+        this by asking for JSON in the prompt and validating client-side — with
+        a retry, since that path *can* come back malformed.
+        """
         ...
 
 
