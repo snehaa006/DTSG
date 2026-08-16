@@ -9,9 +9,27 @@ export interface ChatRequest {
   message: string;
 }
 
+export interface Fact {
+  subject: string;
+  predicate: string;
+  object: string;
+  confidence: number;
+}
+
+export interface FactOutcome {
+  fact: Fact;
+  resolution: Resolution;
+  reasoning: string;
+  memory_id: string | null;
+  expired_memory_ids: string[];
+  reinforced_memory_id: string | null;
+}
+
 export interface ChatResponse {
   reply: string;
   event_id: string;
+  outcomes: FactOutcome[];
+  error: string | null;
 }
 
 export interface Event {
@@ -19,6 +37,10 @@ export interface Event {
   user_id: string;
   raw_text: string;
   timestamp: string;
+}
+
+export interface MemoryListResponse {
+  memories: Memory[];
 }
 
 export interface EventListResponse {
