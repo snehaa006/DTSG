@@ -14,9 +14,8 @@ Two stores, with different mutability rules:
 
 ## Status
 
-**Phase 5 complete** — `POST /api/retrieve` ranks memories by
-`similarity × status_weight × exp(-λ·Δt)`, with modes for "what's true now",
-point-in-time queries, and "what changed".
+**All seven phases complete.** Ingest, conflict resolution, temporal retrieval,
+a timeline view of supersede chains, and a naive-RAG baseline to measure against.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -25,8 +24,27 @@ point-in-time queries, and "what changed".
 | 3 | Event log write path (immutable insert) | ✅ done |
 | 4 | Conflict classifier (REINFORCE / ADDITIVE / SUPERSEDE) + write pipeline | ✅ done |
 | 5 | Temporal retrieval with re-ranking | ✅ done |
-| 6 | Frontend memory timeline showing supersede chains | next |
-| 7 | Baseline naive-RAG endpoint for comparison | |
+| 6 | Frontend memory timeline showing supersede chains | ✅ done |
+| 7 | Baseline naive-RAG endpoint for comparison | ✅ done |
+
+> **Not yet verified against a live model.** The test suite stubs Claude, so
+> extraction quality and the classifier's single- vs multi-valued judgement are
+> unproven. Run `scripts/check_extraction.py` and `scripts/check_classifier.py`
+> with a real key before trusting the graph — everything downstream ranks
+> whatever those two write.
+
+## API
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/chat` | Full ingest: event → facts → classify → write |
+| `POST /api/extract` | Facts from text, stateless (Phase 2) |
+| `GET /api/events` | The immutable log, keyset-paginated |
+| `GET /api/memories` | State graph, filterable by status |
+| `POST /api/retrieve` | Temporal retrieval, modes `now` / `as_of` / `changes` |
+| `GET /api/timeline` | Supersede chains for the timeline view |
+| `POST /api/baseline/retrieve` | Naive RAG: cosine only |
+| `POST /api/baseline/compare` | Both rankings for one query, side by side |
 
 ## Layout
 
@@ -57,6 +75,45 @@ Both model calls go through `app/llm/base.py`, which names jobs by tier
 (`FAST` / `SMART`) rather than by model, so the mapping can be repointed at
 Together.ai or Groq without touching call sites. The embedding client speaks the
 OpenAI wire format, which most hosted providers implement.
+
+## Measuring against naive RAG (Phase 7)
+
+`POST /api/baseline/retrieve` ranks by cosine similarity alone — no status
+weighting, no decay, no conflict logic. `POST /api/baseline/compare` runs both
+policies on one query and reports where they diverge.
+
+**On fairness.** Both read the same `memories` rows, which might look like DTSG
+is being handed a curated corpus. It isn't, and the equivalence is worth stating
+precisely: a naive store never expires anything, so its corpus is "every fact
+ever extracted" — and DTSG never deletes anything either, it only marks rows
+EXPIRED. The row sets are identical. The baseline simply ignores the status and
+time columns, exactly as a system that never wrote them would, which isolates
+the retrieval policy as the only variable.
+
+One caveat in the other direction: DTSG's REINFORCE collapses a restatement into
+a confidence bump rather than a second row, so a truly naive store would hold a
+few more near-duplicates. That works *against* DTSG here, making the measurement
+conservative.
+
+Run the benchmark — no database or API key:
+
+```bash
+cd backend && .venv/bin/python scripts/run_benchmark.py
+# or with your own cases:
+.venv/bin/python scripts/run_benchmark.py my_cases.json
+```
+
+Built-in cases, all ones where the stale fact is the equal-or-better textual
+match:
+
+```
+correct top hit   dtsg 3/3   baseline 0/3
+stale top hit     dtsg 0/4   baseline 3/4
+```
+
+The fourth case is a multi-valued predicate (`speaks English` + `speaks Hindi`)
+where either answer is correct — it guards the opposite failure, since
+over-eager superseding would have left only one of them ACTIVE.
 
 ## Temporal retrieval (Phase 5)
 
@@ -122,6 +179,30 @@ are per-request, so a test set can be swept without a redeploy.
 
 Every response returns the three terms separately, not just the product: a
 ranking you cannot decompose is one you cannot debug.
+
+## The timeline view (Phase 6)
+
+`GET /api/timeline` walks the supersede links into chains, oldest first, and the
+frontend's **timeline** tab renders them: current values marked, superseded ones
+struck through with their validity range, connected down the chain.
+
+```
+user · lives_in                    2 changes
+  ○ Delhi   Jul 2025 → May 2026
+  ○ Berlin  May 2026 → Aug 2026
+  ● Lisbon  Aug 2026 → now
+```
+
+The walk follows `superseded_by` rather than `supersedes`, because that is the
+complete edge: when one fact invalidates several, each old row records the
+replacement, while the new row's single `supersedes` column can only name one of
+them.
+
+A fact that was never superseded comes back as a chain of one, so the UI needs a
+single rendering path rather than separate "history" and "just a fact" cases.
+Dangling links (a replacement outside the current page) stop the walk instead of
+inventing entries, and cycles — which the write path should make impossible —
+surface their rows rather than hanging or silently dropping them.
 
 ## Conflict resolution and the write pipeline (Phase 4)
 

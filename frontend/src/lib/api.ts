@@ -5,6 +5,7 @@ import type {
   MemoryListResponse,
   RetrieveRequest,
   RetrieveResponse,
+  TimelineResponse,
 } from "./types";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -45,6 +46,11 @@ export function retrieve(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function getTimeline(): Promise<TimelineResponse> {
+  const params = new URLSearchParams({ user_id: DEV_USER_ID });
+  return request<TimelineResponse>(`/api/timeline?${params}`);
 }
 
 export function listMemories(

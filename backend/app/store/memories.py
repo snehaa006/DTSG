@@ -328,6 +328,36 @@ async def search_candidates(
     )
 
 
+async def search_naive(
+    conn: asyncpg.Connection,
+    *,
+    user_id: UUID,
+    embedding: list[float],
+    limit: int,
+) -> list[tuple[Memory, float]]:
+    """Top-K by cosine similarity alone — the Phase 7 baseline.
+
+    No status filter and no temporal term, which is the point: this is what
+    retrieval looks like when the store has no concept of a fact ceasing to be
+    true. Superseded rows compete on equal footing with the ones that replaced
+    them.
+    """
+    return _pairs(
+        await conn.fetch(
+            f"""
+            select {_COLUMNS}, 1 - (embedding <=> $2::vector) as similarity
+            from memories
+            where user_id = $1 and embedding is not null
+            order by embedding <=> $2::vector
+            limit $3
+            """,
+            user_id,
+            to_pgvector(embedding),
+            limit,
+        )
+    )
+
+
 def _pairs(rows: list[asyncpg.Record]) -> list[tuple[Memory, float]]:
     return [(_to_memory(row), float(row["similarity"])) for row in rows]
 
