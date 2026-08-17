@@ -43,6 +43,19 @@ export interface MemoryListResponse {
   memories: Memory[];
 }
 
+/** One fact's history, oldest first. A never-superseded fact has one entry. */
+export interface TimelineChain {
+  subject: string | null;
+  predicate: string | null;
+  entries: Memory[];
+  is_current: boolean;
+  revisions: number;
+}
+
+export interface TimelineResponse {
+  chains: TimelineChain[];
+}
+
 export type RetrieveMode = "now" | "as_of" | "changes";
 
 /** A memory with the scoring terms kept separate, so a ranking can be explained. */

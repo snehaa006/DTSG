@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { sendMessage } from "../lib/api";
+import type { FactOutcome } from "../lib/types";
 
 interface Turn {
   role: "user" | "assistant";
@@ -7,9 +8,12 @@ interface Turn {
   // Set on user turns once the message has been appended to the event log.
   // Showing it is how you confirm the write path is live without opening psql.
   eventId?: string;
+  // What the pipeline did with each extracted fact. Rendering these is the
+  // only way to see a SUPERSEDE happen without querying the database.
+  outcomes?: FactOutcome[];
 }
 
-export function Chat() {
+export function Chat({ onWrite }: { onWrite?: () => void }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
@@ -36,8 +40,16 @@ export function Chat() {
             break;
           }
         }
-        return [...next, { role: "assistant", text: response.reply }];
+        return [
+          ...next,
+          {
+            role: "assistant",
+            text: response.reply,
+            outcomes: response.outcomes,
+          },
+        ];
       });
+      onWrite?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -64,6 +76,28 @@ export function Chat() {
               )}
             </span>
             <p>{turn.text}</p>
+            {turn.outcomes && turn.outcomes.length > 0 && (
+              <ul className="outcomes">
+                {turn.outcomes.map((outcome, j) => (
+                  <li key={j}>
+                    <span
+                      className={`resolution resolution-${outcome.resolution.toLowerCase()}`}
+                    >
+                      {outcome.resolution}
+                    </span>
+                    <code>
+                      {outcome.fact.subject} · {outcome.fact.predicate} ·{" "}
+                      {outcome.fact.object}
+                    </code>
+                    {outcome.expired_memory_ids.length > 0 && (
+                      <span className="note">
+                        expired {outcome.expired_memory_ids.length}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         ))}
         {pending && <div className="turn turn-assistant pending">…</div>}

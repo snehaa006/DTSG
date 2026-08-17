@@ -149,6 +149,45 @@ class RetrieveResponse(BaseModel):
     expired_weight: float
 
 
+class TimelineChain(BaseModel):
+    """One fact's history, oldest first. A never-superseded fact has one entry."""
+
+    subject: str | None = None
+    predicate: str | None = None
+    entries: list[Memory]
+    is_current: bool
+    revisions: int
+
+
+class TimelineResponse(BaseModel):
+    chains: list[TimelineChain]
+
+
+class BaselineResult(Memory):
+    """A naive-RAG hit: cosine similarity and nothing else."""
+
+    similarity: float
+
+
+class BaselineResponse(BaseModel):
+    results: list[BaselineResult]
+
+
+class CompareResponse(BaseModel):
+    """DTSG and naive retrieval over the same corpus, for the same query."""
+
+    query: str
+    dtsg: list[ScoredMemory]
+    baseline: list[BaselineResult]
+    # Rows both rankings returned, over the union of both. 1.0 means the two
+    # approaches disagree only on ordering, 0.0 that they share nothing.
+    overlap: float
+    # The failure naive retrieval makes and DTSG is built to avoid: its top hit
+    # is a fact that has since been superseded.
+    baseline_top_is_stale: bool
+    dtsg_top_is_stale: bool
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     database: bool
