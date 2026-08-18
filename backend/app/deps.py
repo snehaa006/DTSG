@@ -1,6 +1,6 @@
 """Shared singletons.
 
-The Anthropic client holds a connection pool, so it is built once at startup
+The Gemini client holds a connection pool, so it is built once at startup
 rather than per request. `get_llm` is written as a FastAPI dependency so tests
 can override it with a stub provider and exercise the routers without a network
 call or an API key.
@@ -14,8 +14,8 @@ import asyncpg
 
 from . import db
 from .config import Settings, get_settings
-from .llm.anthropic_provider import AnthropicProvider
 from .llm.base import LLMProvider
+from .llm.gemini_provider import GeminiProvider
 from .llm.embeddings import EmbeddingClient
 
 _llm: LLMProvider | None = None
@@ -24,7 +24,7 @@ _embeddings: EmbeddingClient | None = None
 
 def init(settings: Settings) -> None:
     global _llm, _embeddings
-    _llm = AnthropicProvider(settings)
+    _llm = GeminiProvider(settings)
     _embeddings = EmbeddingClient(settings)
 
 

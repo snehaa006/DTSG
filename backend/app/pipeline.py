@@ -41,7 +41,7 @@ async def _embed_one(embeddings: EmbeddingClient, fact: Fact) -> list[float] | N
     can be backfilled; dropping the fact loses it.
     """
     try:
-        vectors = await embeddings.embed([memories_store.embedding_text(fact)])
+        vectors = await embeddings.embed_documents([memories_store.embedding_text(fact)])
         return vectors[0] if vectors else None
     except Exception:  # noqa: BLE001 - degrade, don't fail the write
         log.warning("embedding failed; falling back to exact matching", exc_info=True)

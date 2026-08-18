@@ -44,9 +44,13 @@ class StubEmbeddings:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def embed(self, texts):
+    async def embed_documents(self, texts):
         self.calls += 1
-        return [[1.0] + [0.0] * 1535]
+        return [[1.0] + [0.0] * 1535 for _ in texts]
+
+    async def embed_query(self, text):
+        self.calls += 1
+        return [1.0] + [0.0] * 1535
 
 
 class FakeConn:
@@ -191,7 +195,10 @@ async def test_empty_corpus_compares_cleanly() -> None:
 @pytest.mark.asyncio
 async def test_embedding_failure_is_502() -> None:
     class Broken:
-        async def embed(self, texts):
+        async def embed_documents(self, texts):
+            raise RuntimeError("down")
+
+        async def embed_query(self, text):
             raise RuntimeError("down")
 
     conn = FakeConn([])

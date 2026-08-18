@@ -210,7 +210,7 @@ async def test_source_event_is_recorded_on_every_insert(patched) -> None:
 @pytest.mark.asyncio
 async def test_embedding_failure_degrades_instead_of_dropping_the_fact() -> None:
     class Broken:
-        async def embed(self, texts):
+        async def embed_documents(self, texts):
             raise RuntimeError("embedding service down")
 
     assert await pipeline._embed_one(Broken(), _fact()) is None
