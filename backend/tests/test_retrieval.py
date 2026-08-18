@@ -234,11 +234,17 @@ class StubEmbeddings:
         self.fail = fail
         self.calls: list[list[str]] = []
 
-    async def embed(self, texts):
+    async def embed_documents(self, texts):
         self.calls.append(texts)
         if self.fail:
             raise RuntimeError("embedding service down")
-        return [[1.0] + [0.0] * 1535]
+        return [[1.0] + [0.0] * 1535 for _ in texts]
+
+    async def embed_query(self, text):
+        self.calls.append([text])
+        if self.fail:
+            raise RuntimeError("embedding service down")
+        return [1.0] + [0.0] * 1535
 
 
 class FakeConn:

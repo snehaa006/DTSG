@@ -13,9 +13,8 @@ services:
       # is IPv6-only and will not resolve from Render.
       - key: DATABASE_URL
         sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: EMBEDDING_API_KEY
+      # One Gemini key covers generation and embeddings.
+      - key: GEMINI_API_KEY
         sync: false
       # Set to the deployed Vercel origin once the frontend is live.
       - key: CORS_ORIGINS

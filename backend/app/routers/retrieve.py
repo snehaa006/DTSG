@@ -55,7 +55,7 @@ async def retrieve(
     )
 
     try:
-        vectors = await embeddings.embed([payload.query])
+        embedding = await embeddings.embed_query(payload.query)
     except Exception as exc:  # noqa: BLE001
         # Unlike the write path, there is no useful degraded answer here: with
         # no query vector every similarity is undefined, so ranking would be
@@ -63,14 +63,11 @@ async def retrieve(
         log.warning("query embedding failed", exc_info=True)
         raise HTTPException(status_code=502, detail="embedding service unavailable") from exc
 
-    if not vectors:
-        raise HTTPException(status_code=502, detail="embedding service returned nothing")
-
     pool_size = candidate_pool_size(payload.limit)
     candidates = await memories_store.search_candidates(
         conn,
         user_id=payload.user_id,
-        embedding=vectors[0],
+        embedding=embedding,
         pool_size=pool_size,
         mode=payload.mode,
         as_of=payload.as_of,

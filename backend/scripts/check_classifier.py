@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-"""Check the classifier's judgement against the real Claude API.
+"""Check the classifier's judgement against the real Gemini API.
 
 The unit tests cover reconciliation and write semantics, but the decision that
 actually matters — is this predicate single-valued or multi-valued? — is the
 model's, so it can only be checked live.
 
     cd backend
-    ANTHROPIC_API_KEY=sk-ant-... .venv/bin/python scripts/check_classifier.py
+    GEMINI_API_KEY=... .venv/bin/python scripts/check_classifier.py
 
 Exits non-zero if any case disagrees, so it can gate a deploy.
 """
@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.classifier import classify  # noqa: E402
 from app.config import Settings  # noqa: E402
-from app.llm.anthropic_provider import AnthropicProvider  # noqa: E402
+from app.llm.gemini_provider import GeminiProvider  # noqa: E402
 from app.schemas import Fact, MemoryCandidate  # noqa: E402
 
 USER = uuid4()
@@ -73,11 +73,11 @@ CASES = [
 
 
 async def main() -> None:
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        sys.exit("ANTHROPIC_API_KEY is not set")
+    if not os.environ.get("GEMINI_API_KEY"):
+        sys.exit("GEMINI_API_KEY is not set")
 
-    provider = AnthropicProvider(
-        Settings(database_url="unused://", anthropic_api_key=os.environ["ANTHROPIC_API_KEY"])
+    provider = GeminiProvider(
+        Settings(database_url="unused://", gemini_api_key=os.environ["GEMINI_API_KEY"])
     )
 
     failures = 0

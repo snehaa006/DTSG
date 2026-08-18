@@ -18,7 +18,7 @@ from app.extraction import (
     normalize_predicate,
     normalize_subject,
 )
-from app.llm.anthropic_provider import ExtractionError
+from app.llm.base import ExtractionError
 from app.main import app
 
 

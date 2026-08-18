@@ -11,16 +11,22 @@ class Settings(BaseSettings):
     # outbound network is IPv4.
     database_url: str
 
-    # LLM. Phase 1 does not call these yet; they are wired so Phase 2 is a
-    # no-config change.
-    anthropic_api_key: str = ""
-    model_fast: str = "claude-haiku-4-5"
-    model_smart: str = "claude-sonnet-5"
+    # Gemini. One key covers both generation and embeddings.
+    gemini_api_key: str = ""
 
-    # Embeddings. 1536 dims to match the vector(1536) column in the schema.
-    embedding_api_key: str = ""
-    embedding_base_url: str = "https://api.openai.com/v1"
-    embedding_model: str = "text-embedding-3-small"
+    # Model IDs are configuration, not constants — Google ships new ones often.
+    # Confirm what your key can reach with `scripts/list_models.py` and override
+    # here if these have moved on.
+    #
+    # FAST runs on every message (extraction + conflict classification), so it
+    # dominates cost. SMART is reserved for answer generation and is not called
+    # by any endpoint yet.
+    model_fast: str = "gemini-2.5-flash"
+    model_smart: str = "gemini-2.5-pro"
+
+    # Embeddings. 1536 must match the vector(1536) column; changing it means a
+    # migration on memories.embedding plus a re-embed of every row.
+    embedding_model: str = "gemini-embedding-001"
     embedding_dim: int = 1536
 
     # Comma-separated list of allowed browser origins.
