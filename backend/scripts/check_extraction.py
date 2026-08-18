@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-"""Run extraction against the real Claude API and print what comes back.
+"""Run extraction against the real Gemini API and print what comes back.
 
 The automated tests stub the provider, so this is what actually proves the live
 path — schema acceptance, model behaviour, and prompt quality.
 
     cd backend
-    ANTHROPIC_API_KEY=sk-ant-... .venv/bin/python scripts/check_extraction.py
+    GEMINI_API_KEY=... .venv/bin/python scripts/check_extraction.py
 
 Pass your own sentences as arguments to try them instead of the samples.
 """
@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.config import Settings  # noqa: E402
 from app.extraction import extract_facts  # noqa: E402
-from app.llm.anthropic_provider import AnthropicProvider  # noqa: E402
+from app.llm.gemini_provider import GeminiProvider  # noqa: E402
 
 SAMPLES = [
     # Plain multi-fact assertion.
@@ -37,11 +37,11 @@ SAMPLES = [
 
 
 async def main() -> None:
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        sys.exit("ANTHROPIC_API_KEY is not set")
+    if not os.environ.get("GEMINI_API_KEY"):
+        sys.exit("GEMINI_API_KEY is not set")
 
-    settings = Settings(database_url="unused://", anthropic_api_key=os.environ["ANTHROPIC_API_KEY"])
-    provider = AnthropicProvider(settings)
+    settings = Settings(database_url="unused://", gemini_api_key=os.environ["GEMINI_API_KEY"])
+    provider = GeminiProvider(settings)
     texts = sys.argv[1:] or SAMPLES
 
     for text in texts:

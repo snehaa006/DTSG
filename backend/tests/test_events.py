@@ -151,8 +151,11 @@ class NoFactsLLM:
 
 
 class NoopEmbeddings:
-    async def embed(self, texts):  # pragma: no cover - unreached with no facts
-        return [[0.0]]
+    async def embed_documents(self, texts):  # pragma: no cover - no facts extracted
+        return [[0.0] for _ in texts]
+
+    async def embed_query(self, text):  # pragma: no cover - chat does not query
+        return [0.0]
 
 
 def _chat_client(conn: FakeConn) -> httpx.AsyncClient:

@@ -27,11 +27,11 @@ a timeline view of supersede chains, and a naive-RAG baseline to measure against
 | 6 | Frontend memory timeline showing supersede chains | ✅ done |
 | 7 | Baseline naive-RAG endpoint for comparison | ✅ done |
 
-> **Not yet verified against a live model.** The test suite stubs Claude, so
+> **Not yet verified against a live model.** The test suite stubs the LLM, so
 > extraction quality and the classifier's single- vs multi-valued judgement are
-> unproven. Run `scripts/check_extraction.py` and `scripts/check_classifier.py`
-> with a real key before trusting the graph — everything downstream ranks
-> whatever those two write.
+> unproven. Run `scripts/list_models.py`, then `scripts/check_extraction.py` and
+> `scripts/check_classifier.py` with a real key before trusting the graph —
+> everything downstream ranks whatever those two write.
 
 ## API
 
@@ -49,13 +49,13 @@ a timeline view of supersede chains, and a naive-RAG baseline to measure against
 ## Layout
 
 ```
-supabase/migrations/   SQL migrations (0001 is applied to the DTSG project)
+supabase/migrations/   SQL migrations 0001-0004 (all applied to the DTSG project)
 backend/               FastAPI service, deployed on Render
   app/config.py        Settings (env-driven)
   app/db.py            asyncpg pool
   app/schemas.py       Wire types
   app/routers/         health, chat
-  app/llm/             Provider abstraction: Claude + hosted embeddings
+  app/llm/             Provider abstraction: Gemini generation + embeddings
 frontend/              React + TypeScript + Vite, deployed on Vercel
 render.yaml            Render blueprint
 ```
@@ -67,14 +67,31 @@ render.yaml            Render blueprint
 | Database | Supabase Postgres + pgvector (`vector(1536)`, HNSW cosine index) |
 | Backend | FastAPI on Render |
 | Frontend | React + TypeScript + Vite on Vercel |
-| Extraction / classification | `claude-haiku-4-5` |
-| Answer generation | `claude-sonnet-5` |
-| Embeddings | OpenAI-compatible `/embeddings` API, 1536 dims |
+| Extraction / classification | Gemini, `MODEL_FAST` (default `gemini-2.5-flash`) |
+| Answer generation | Gemini, `MODEL_SMART` — reserved, not called by any endpoint yet |
+| Embeddings | `gemini-embedding-001` at 1536 dims |
 
-Both model calls go through `app/llm/base.py`, which names jobs by tier
-(`FAST` / `SMART`) rather than by model, so the mapping can be repointed at
-Together.ai or Groq without touching call sites. The embedding client speaks the
-OpenAI wire format, which most hosted providers implement.
+Model calls go through `app/llm/base.py`, which names jobs by tier (`FAST` /
+`SMART`) rather than by model, so the mapping can be repointed at another vendor
+by writing one class. FAST runs on every message and dominates cost.
+
+**Model IDs are configuration, not constants** — Google ships new ones often, so
+the defaults may have moved on. Check what your key can actually reach:
+
+```bash
+cd backend && GEMINI_API_KEY=... .venv/bin/python scripts/list_models.py
+```
+
+It exits non-zero if a configured model is unavailable, so it works as a
+preflight check.
+
+**Embeddings are asymmetric.** Stored facts are embedded as
+`RETRIEVAL_DOCUMENT`, search queries as `RETRIEVAL_QUERY` — same vector space,
+better ranking. Conflict detection compares a new fact against stored facts, so
+it uses the document role on both sides. `gemini-embedding-001` returns 3072
+dimensions by default; the request asks for 1536 to match the `vector(1536)`
+column, which the model supports natively (Matryoshka truncation) rather than
+requiring a migration.
 
 ## Measuring against naive RAG (Phase 7)
 
@@ -265,7 +282,7 @@ Verify the model's judgement against your own cases:
 
 ```bash
 cd backend
-ANTHROPIC_API_KEY=sk-ant-... .venv/bin/python scripts/check_classifier.py
+GEMINI_API_KEY=... .venv/bin/python scripts/check_classifier.py
 ```
 
 Inspect the graph with `GET /api/memories?user_id=…` (add `status=EXPIRED` to
@@ -338,7 +355,7 @@ To check the live model path (the test suite stubs it):
 
 ```bash
 cd backend
-ANTHROPIC_API_KEY=sk-ant-... .venv/bin/python scripts/check_extraction.py
+GEMINI_API_KEY=... .venv/bin/python scripts/check_extraction.py
 ```
 
 ## Local development
@@ -379,8 +396,7 @@ to Postgres directly, and the API connects with the service role, which bypasses
 RLS.
 
 **Render** — `render.yaml` at the repo root builds from `backend/`. Set
-`DATABASE_URL`, `ANTHROPIC_API_KEY`, `EMBEDDING_API_KEY`, and `CORS_ORIGINS` in
-the dashboard.
+`DATABASE_URL`, `GEMINI_API_KEY`, and `CORS_ORIGINS` in the dashboard.
 
 > Use the Supabase **transaction pooler** URI (`aws-1-<region>.pooler.supabase.com`,
 > port 6543), not `db.<ref>.supabase.co`. The direct host is IPv6-only and Render

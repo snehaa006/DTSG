@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import logging
 
-from anthropic import APIStatusError
+from google.genai import errors as genai_errors
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..deps import get_llm
 from ..extraction import extract_facts
-from ..llm.anthropic_provider import ExtractionError
-from ..llm.base import LLMProvider
+from ..llm.base import ExtractionError, LLMProvider
 from ..schemas import ExtractRequest, ExtractResponse
 
 log = logging.getLogger(__name__)
@@ -33,11 +32,11 @@ async def extract(
     except ExtractionError as exc:
         log.warning("extraction produced no structured output: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except APIStatusError as exc:
+    except genai_errors.APIError as exc:
         # Surface upstream rate limits and overloads as themselves so the caller
         # can back off, rather than flattening everything into a 500.
-        status = 429 if exc.status_code == 429 else 502
-        log.warning("anthropic error %s during extraction", exc.status_code)
+        status = 429 if exc.code == 429 else 502
+        log.warning("gemini error %s during extraction", exc.code)
         raise HTTPException(status_code=status, detail="upstream model error") from exc
 
     return ExtractResponse(facts=facts, count=len(facts))

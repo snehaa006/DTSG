@@ -50,13 +50,11 @@ router = APIRouter(prefix="/api/baseline", tags=["baseline"])
 
 async def _embed(embeddings: EmbeddingClient, query: str) -> list[float]:
     try:
-        vectors = await embeddings.embed([query])
+        embedding = await embeddings.embed_query(query)
     except Exception as exc:  # noqa: BLE001
         log.warning("query embedding failed", exc_info=True)
         raise HTTPException(status_code=502, detail="embedding service unavailable") from exc
-    if not vectors:
-        raise HTTPException(status_code=502, detail="embedding service returned nothing")
-    return vectors[0]
+    return embedding
 
 
 @router.post("/retrieve", response_model=BaselineResponse)
