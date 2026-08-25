@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { sendMessage } from "../lib/api";
+import { useEffect, useState, type FormEvent } from "react";
+import { getEvents, sendMessage } from "../lib/api";
 import type { FactOutcome } from "../lib/types";
 
 interface Turn {
@@ -11,6 +11,10 @@ interface Turn {
   // What the pipeline did with each extracted fact. Rendering these is the
   // only way to see a SUPERSEDE happen without querying the database.
   outcomes?: FactOutcome[];
+  // Replayed from the event log rather than sent this session. The log stores
+  // the raw message only, so these carry no reply and no outcomes — marking
+  // them keeps that gap visible instead of implying the facts were never found.
+  restored?: boolean;
 }
 
 export function Chat({ onWrite }: { onWrite?: () => void }) {
@@ -18,6 +22,38 @@ export function Chat({ onWrite }: { onWrite?: () => void }) {
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+
+  // Restore the transcript from the event log. Without this the conversation
+  // lives only in component state, so a reload looks like the data was lost
+  // when in fact every message is still in Postgres.
+  useEffect(() => {
+    let cancelled = false;
+    getEvents()
+      .then((response) => {
+        if (cancelled) return;
+        // The log comes back newest first; a transcript reads oldest first.
+        const history: Turn[] = [...response.events].reverse().map((event) => ({
+          role: "user",
+          text: event.raw_text,
+          eventId: event.id,
+          restored: true,
+        }));
+        // Prepend rather than replace: a message sent while this was in flight
+        // is newer than anything the log returned, so it belongs at the end.
+        setTurns((prev) => [...history, ...prev]);
+      })
+      .catch(() => {
+        // A failed restore is not worth blocking on — the composer still works
+        // and the next send will succeed or surface its own error.
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingHistory(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -60,13 +96,19 @@ export function Chat({ onWrite }: { onWrite?: () => void }) {
   return (
     <section className="chat">
       <div className="transcript">
-        {turns.length === 0 && (
-          <p className="empty">
-            Send a message to confirm the browser can reach the API.
-          </p>
-        )}
+        {turns.length === 0 &&
+          (loadingHistory ? (
+            <p className="empty">Loading history…</p>
+          ) : (
+            <p className="empty">
+              Send a message to confirm the browser can reach the API.
+            </p>
+          ))}
         {turns.map((turn, i) => (
-          <div key={i} className={`turn turn-${turn.role}`}>
+          <div
+            key={i}
+            className={`turn turn-${turn.role}${turn.restored ? " turn-restored" : ""}`}
+          >
             <span className="role">
               {turn.role}
               {turn.eventId && (
@@ -74,6 +116,7 @@ export function Chat({ onWrite }: { onWrite?: () => void }) {
                   logged {turn.eventId.slice(0, 8)}
                 </span>
               )}
+              {turn.restored && <span className="note">from log</span>}
             </span>
             <p>{turn.text}</p>
             {turn.outcomes && turn.outcomes.length > 0 && (

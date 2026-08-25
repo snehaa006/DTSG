@@ -100,6 +100,16 @@ h1 {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
 
+/* Replayed from the event log: present, but without the reply and outcomes a
+   live turn carries, so it reads as quieter than one sent this session. */
+.turn-restored {
+  opacity: 0.75;
+}
+
+.turn .role .note {
+  margin-left: 0.5rem;
+}
+
 .pending {
   color: var(--muted);
 }
