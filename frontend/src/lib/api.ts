@@ -1,6 +1,7 @@
 import type {
   ChatRequest,
   ChatResponse,
+  EventListResponse,
   HealthResponse,
   MemoryListResponse,
   RetrieveRequest,
@@ -36,6 +37,15 @@ export function sendMessage(message: string): Promise<ChatResponse> {
 
 export function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>("/health");
+}
+
+/** The event log, newest first. Used to restore the transcript on load. */
+export function getEvents(limit = 50): Promise<EventListResponse> {
+  const params = new URLSearchParams({
+    user_id: DEV_USER_ID,
+    limit: String(limit),
+  });
+  return request<EventListResponse>(`/api/events?${params}`);
 }
 
 export function retrieve(
