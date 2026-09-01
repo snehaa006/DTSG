@@ -10,3 +10,10 @@ dist/
 .vercel
 .DS_Store
 *.tsbuildinfo
+
+# LaTeX build artifacts
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/b*.log
