@@ -44,3 +44,18 @@ Nothing in the report is invented; each figure is reproducible from the repo:
 The related-work section cites 22 real papers. Verify the arXiv identifiers and
 venues against the published versions before submission — they are quoted from
 memory and a wrong number is the easiest thing for an evaluator to catch.
+
+## Word version
+
+`dtsg_internship_report.docx` is generated from the same LaTeX source:
+
+```bash
+python3 make_docx.py    # needs pandoc, libreoffice, pypdfium2, Pillow, python-docx
+```
+
+The script converts with pandoc and fills the gaps pandoc leaves: the two TikZ
+diagrams are cropped out of the built PDF as images, cross-references,
+citations and caption numbers are resolved from the source, the three displays
+that Word's math format mangles are rewritten as plain lines, and the result
+gets A4 pages, table column widths, a title page, page numbers and a filled
+contents page. Rebuild it whenever the `.tex` changes.
