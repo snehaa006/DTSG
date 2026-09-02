@@ -18,3 +18,12 @@ report/*.out
 report/*.toc
 report/b*.log
 report/build/
+poster/*.aux
+poster/*.log
+poster/*.nav
+poster/*.out
+poster/*.snm
+poster/*.toc
+poster/preview.png
+poster/col*.png
+poster/bullets.png
